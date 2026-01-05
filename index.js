@@ -1,14 +1,11 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-/* --------------------------------------------------
-   CORS CONFIG — FINAL & VERIFIED
--------------------------------------------------- */
+/* ---------------- CORS ---------------- */
 app.use(
   cors({
     origin: "https://www.dealconnect.store",
@@ -16,27 +13,20 @@ app.use(
     allowedHeaders: ["Content-Type"]
   })
 );
-
-/* Handle browser preflight requests */
 app.options("*", cors());
 
-/* Parse JSON bodies */
+/* ---------------- MIDDLEWARE ---------------- */
 app.use(express.json());
 
-/* --------------------------------------------------
-   HEALTH CHECK (Cloud Run)
--------------------------------------------------- */
+/* ---------------- HEALTH CHECK ---------------- */
 app.get("/", (req, res) => {
   res.json({ status: "OK" });
 });
 
-/* --------------------------------------------------
-   GEMINI HELPER
--------------------------------------------------- */
+/* ---------------- GEMINI CALL ---------------- */
 async function callGemini(prompt) {
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" +
-      GEMINI_API_KEY,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -53,7 +43,7 @@ async function callGemini(prompt) {
 
   if (!response.ok) {
     const err = await response.text();
-    console.error("Gemini API Error:", err);
+    console.error("Gemini error:", err);
     throw new Error("Gemini API failed");
   }
 
@@ -61,49 +51,36 @@ async function callGemini(prompt) {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-/* --------------------------------------------------
-   AI ENDPOINT
--------------------------------------------------- */
+/* ---------------- AI ENDPOINT ---------------- */
 app.post("/run-ai", async (req, res) => {
   try {
     const { action, text } = req.body;
 
     if (!action || !text) {
-      return res.status(400).json({
-        output: "Missing required fields: action or text"
-      });
+      return res.status(400).json({ output: "Missing action or text" });
     }
 
     let prompt = "";
 
-    switch (action) {
-      case "title":
-        prompt = `Generate a professional resume title for the following profile:\n${text}`;
-        break;
-
-      case "summary":
-        prompt = `Write a concise, ATS-friendly professional resume summary for:\n${text}`;
-        break;
-
-      case "skills":
-        prompt = `Generate ATS-optimized resume skills (comma separated) for:\n${text}`;
-        break;
-
-      default:
-        return res.status(400).json({ output: "Invalid action" });
+    if (action === "title") {
+      prompt = `Generate a professional resume title for:\n${text}`;
+    } else if (action === "summary") {
+      prompt = `Write a concise ATS-friendly resume summary for:\n${text}`;
+    } else if (action === "skills") {
+      prompt = `Generate ATS-optimized resume skills (comma separated) for:\n${text}`;
+    } else {
+      return res.status(400).json({ output: "Invalid action" });
     }
 
-    const aiText = await callGemini(prompt);
-    res.json({ output: aiText });
-  } catch (error) {
-    console.error("AI Error:", error);
+    const result = await callGemini(prompt);
+    res.json({ output: result });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ output: "AI service error" });
   }
 });
 
-/* --------------------------------------------------
-   START SERVER (REQUIRED FOR CLOUD RUN)
--------------------------------------------------- */
+/* ---------------- START SERVER ---------------- */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
