@@ -1,28 +1,27 @@
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 
 const app = express();
 
-/* CORS — allow browser calls */
+/* ---- Middleware ---- */
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* Health check */
+/* ---- Health check ---- */
 app.get("/", (req, res) => {
   res.json({ status: "OK" });
 });
 
-/* ===== GEMINI CALL (PRODUCTION SAFE) ===== */
+/* ---- Gemini call ---- */
 async function callGemini(prompt) {
-  if (!process.env.GEMINI_API_KEY) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     throw new Error("GEMINI_API_KEY not set");
   }
 
   const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent" +
-    "?key=" +
-    process.env.GEMINI_API_KEY;
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
+    apiKey;
 
   const response = await fetch(url, {
     method: "POST",
@@ -37,37 +36,39 @@ async function callGemini(prompt) {
     })
   });
 
-  const rawText = await response.text();
+  const data = await response.json();
 
   if (!response.ok) {
-    console.error("Gemini RAW ERROR:", rawText);
+    console.error("Gemini API ERROR:", data);
     throw new Error("Gemini API failed");
   }
 
-  const data = JSON.parse(rawText);
-
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-/* ===== AI ENDPOINT ===== */
+/* ---- AI endpoint ---- */
 app.post("/run-ai", async (req, res) => {
   try {
     const { action, text } = req.body;
 
     if (!action || !text) {
-      return res.json({ output: "Invalid input" });
+      return res.status(400).json({ output: "Invalid input" });
     }
 
-    let prompt = "";
+    let prompt;
 
-    if (action === "title") {
-      prompt = `Suggest a professional resume title for: ${text}`;
-    } else if (action === "summary") {
-      prompt = `Write a 2-line professional resume summary for: ${text}`;
-    } else if (action === "skills") {
-      prompt = `List 6 professional skills for: ${text}`;
-    } else {
-      return res.json({ output: "Invalid action" });
+    switch (action) {
+      case "title":
+        prompt = `Suggest a professional resume title for: ${text}`;
+        break;
+      case "summary":
+        prompt = `Write a concise professional resume summary for: ${text}`;
+        break;
+      case "skills":
+        prompt = `List 6 relevant professional skills for: ${text}`;
+        break;
+      default:
+        return res.status(400).json({ output: "Invalid action" });
     }
 
     const aiText = await callGemini(prompt);
@@ -79,7 +80,7 @@ app.post("/run-ai", async (req, res) => {
   }
 });
 
-/* ===== START SERVER ===== */
+/* ---- Start server ---- */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
