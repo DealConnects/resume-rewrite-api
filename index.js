@@ -1,31 +1,28 @@
 import express from "express";
 import cors from "cors";
+import fetch from "node-fetch";
 
 const app = express();
 
-/* ---------- MIDDLEWARE ---------- */
-app.use(cors({
-  origin: "https://www.dealconnect.store",
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
+/* CORS — allow browser calls */
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* ---------- HEALTH CHECK ---------- */
+/* Health check */
 app.get("/", (req, res) => {
   res.json({ status: "OK" });
 });
 
-/* ---------- GEMINI CALL ---------- */
+/* ===== GEMINI CALL (PRODUCTION SAFE) ===== */
 async function callGemini(prompt) {
-  const API_KEY = process.env.GEMINI_API_KEY;
-  if (!API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY not set");
   }
 
   const url =
-    "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=" +
-    API_KEY;
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent" +
+    "?key=" +
+    process.env.GEMINI_API_KEY;
 
   const response = await fetch(url, {
     method: "POST",
@@ -33,31 +30,32 @@ async function callGemini(prompt) {
     body: JSON.stringify({
       contents: [
         {
+          role: "user",
           parts: [{ text: prompt }]
         }
       ]
     })
   });
 
+  const rawText = await response.text();
+
   if (!response.ok) {
-    const errText = await response.text();
-    console.error("Gemini API error:", errText);
+    console.error("Gemini RAW ERROR:", rawText);
     throw new Error("Gemini API failed");
   }
 
-  const data = await response.json();
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ""
-  );
+  const data = JSON.parse(rawText);
+
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-/* ---------- AI ENDPOINT ---------- */
+/* ===== AI ENDPOINT ===== */
 app.post("/run-ai", async (req, res) => {
   try {
     const { action, text } = req.body;
 
     if (!action || !text) {
-      return res.status(400).json({ output: "Invalid input" });
+      return res.json({ output: "Invalid input" });
     }
 
     let prompt = "";
@@ -65,27 +63,23 @@ app.post("/run-ai", async (req, res) => {
     if (action === "title") {
       prompt = `Suggest a professional resume title for: ${text}`;
     } else if (action === "summary") {
-      prompt = `Write a professional resume summary for: ${text}`;
+      prompt = `Write a 2-line professional resume summary for: ${text}`;
     } else if (action === "skills") {
-      prompt = `List key resume skills for: ${text}`;
+      prompt = `List 6 professional skills for: ${text}`;
     } else {
-      return res.status(400).json({ output: "Invalid action" });
+      return res.json({ output: "Invalid action" });
     }
 
     const aiText = await callGemini(prompt);
-
-    if (!aiText) {
-      return res.json({ output: "AI generated no text. Please retry." });
-    }
-
     res.json({ output: aiText });
+
   } catch (err) {
     console.error("RUN-AI ERROR:", err);
     res.status(500).json({ output: "AI service error" });
   }
 });
 
-/* ---------- START SERVER ---------- */
+/* ===== START SERVER ===== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
