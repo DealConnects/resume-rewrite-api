@@ -1,27 +1,25 @@
 import express from "express";
 import cors from "cors";
+import fetch from "node-fetch";
 
 const app = express();
 
-/* ---- Middleware ---- */
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-/* ---- Health check ---- */
 app.get("/", (req, res) => {
   res.json({ status: "OK" });
 });
 
-/* ---- Gemini call ---- */
 async function callGemini(prompt) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY not set");
   }
 
   const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" +
-    apiKey;
+    "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-001:generateContent" +
+    "?key=" +
+    process.env.GEMINI_API_KEY;
 
   const response = await fetch(url, {
     method: "POST",
@@ -46,29 +44,24 @@ async function callGemini(prompt) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-/* ---- AI endpoint ---- */
 app.post("/run-ai", async (req, res) => {
   try {
     const { action, text } = req.body;
 
     if (!action || !text) {
-      return res.status(400).json({ output: "Invalid input" });
+      return res.json({ output: "Invalid input" });
     }
 
-    let prompt;
+    let prompt = "";
 
-    switch (action) {
-      case "title":
-        prompt = `Suggest a professional resume title for: ${text}`;
-        break;
-      case "summary":
-        prompt = `Write a concise professional resume summary for: ${text}`;
-        break;
-      case "skills":
-        prompt = `List 6 relevant professional skills for: ${text}`;
-        break;
-      default:
-        return res.status(400).json({ output: "Invalid action" });
+    if (action === "title") {
+      prompt = `Suggest a professional resume title for: ${text}`;
+    } else if (action === "summary") {
+      prompt = `Write a concise professional resume summary for: ${text}`;
+    } else if (action === "skills") {
+      prompt = `List 6 professional resume skills for: ${text}`;
+    } else {
+      return res.json({ output: "Invalid action" });
     }
 
     const aiText = await callGemini(prompt);
@@ -80,7 +73,6 @@ app.post("/run-ai", async (req, res) => {
   }
 });
 
-/* ---- Start server ---- */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
